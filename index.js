@@ -8,6 +8,7 @@ function LazyRest(app, opts) {
 	function isFunction(obj) {
 		return !!(obj && obj.constructor && obj.call && obj.apply);
 	}
+
 	opts = extend(true, {
 		methods: [
 			'get',
@@ -21,7 +22,9 @@ function LazyRest(app, opts) {
 			'patch'
 		],
 		path: './api'
-	}, opts);
+	}, opts || {});
+
+	opts.path = path.join(process.cwd(), path.normalize(opts.path));
 
 	glob('**/@(' + opts.methods.join('|') + ').js', {
 		nocase: true,
@@ -38,7 +41,7 @@ function LazyRest(app, opts) {
 						m[1] = m[1].replace(/\/$/, '');
 					}
 					if (isFunction(app[m[2]])) {
-						app[(m[2].toLowerCase())](m[1], require('./' + fullPath)(app));
+						app[(m[2].toLowerCase())](m[1], require(fullPath)(app));
 					} else {
 						console.error(m[2] + ' is not a valid method of an Express app.');
 					}
