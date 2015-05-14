@@ -1,0 +1,29 @@
+{
+  "name": "lazy-rest",
+  "version": "0.0.0",
+  "description": "Create a simple REST API using just your folder structure to create endpoints",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lellimecnar/lazy-rest.git"
+  },
+  "keywords": [
+    "rest",
+    "api",
+    "endpoint"
+  ],
+  "author": "Lance Miller",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/lellimecnar/lazy-rest/issues"
+  },
+  "homepage": "https://github.com/lellimecnar/lazy-rest/wiki",
+  "dependencies": {
+    "extend": "^2.0.1",
+    "glob": "^5.0.6",
+    "path": "^0.11.14"
+  }
+}
