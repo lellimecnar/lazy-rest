@@ -8,7 +8,7 @@ function LazyRest(app, db, opts) {
 
 	if (typeof opts === 'undefined') {
 		opts = db;
-		delete db;
+		db = null;
 	}
 
 	function isFunction(obj) {
