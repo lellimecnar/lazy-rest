@@ -33,7 +33,7 @@ lazyRest(app, {
 });
 ```
 
-###`methods`
+### `methods`
 An array of HTTP methods to match against filenames.
 
 Available methods:
@@ -49,7 +49,7 @@ Available methods:
 `patch`
 
 
-###`path`
+### `path`
 The relative path where your API folder structure can be found.
 
 Defaults to `./api`
