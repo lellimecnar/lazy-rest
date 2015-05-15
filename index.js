@@ -24,7 +24,7 @@ function LazyRest(app, opts) {
 		],
 		path: './api',
 		db: null,
-		dbPath: null
+		dbPath: './db'
 	}, opts || {});
 
 	opts.path = path.join(process.cwd(), path.normalize(opts.path));
@@ -61,18 +61,20 @@ function LazyRest(app, opts) {
 	opts.dbPath = path.join(process.cwd(), path.normalize(opts.dbPath));
 
 	if (opts.db !== null && opts.dbPath !== null) {
+		app.db = opts.db;
+
 		glob('**/schema.js', {
 			nocase: true,
 			cwd: opts.dbPath
 		},
-		function(filePaths) {
+		function(err, filePaths) {
 			if (!err) {
 				filePaths.forEach(function(filePath) {
-					var name = changeCase.pascal(filePath.replace(/schema\.[\.]+$/, '')),
+					var name = changeCase.pascal(filePath.replace('schema.js', '')),
 						fullPath = path.join(opts.dbPath, filePath),
-						schema = new db.Schema(require(fullPath));
+						schema = new opts.db.Schema(require(fullPath));
 
-					db.model(name, schema);
+					opts.db.model(name, schema);
 				});
 			}
 		});
@@ -81,17 +83,17 @@ function LazyRest(app, opts) {
 			nocase: true,
 			cwd: opts.dbPath
 		},
-		function(filePaths) {
+		function(err, filePaths) {
 			if (!err) {
 				filePaths.forEach(function(filePath) {
-					var name = changeCase.pascal(filePath.replace(/params\.[^\.]+$/, '')),
+					var name = changeCase.pascal(filePath.replace('params.js', '')),
 						fullPath = path.join(opts.dbPath, filePath),
 						params = require(fullPath);
 
 					Object.keys(params).forEach(function(param) {
 						app.param(param, function(req, res, next, val) {
-							var model = db.model(name);
-							params[param](req, res, next, val, model, db);
+							var model = opts.db.model(name);
+							params[param](req, res, next, val, model, opts.db);
 						});
 					});
 				});
