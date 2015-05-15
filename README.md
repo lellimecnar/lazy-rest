@@ -12,11 +12,11 @@ Create a simple REST API using just your folder structure to create endpoints.
 
 ### Available options
 
-| option      | type     | default | description                                                                                        |
-|-------------|----------|---------|----------------------------------------------------------------------------------------------------|
-| `path`      | `String` | `./api` | The relative path for lazy-rest to look for endpoints.                                             |
-| `dbPath`    | `String` | `./db`  | The relative path for lazy-rest to look for Mongoose configuration.                                |
-| `paramChar` | `String` | `:`     | The character to precede named parameters in folder names. Useful when `:` is an illegal character |
+| option      | type     | default   | description                                                                                        |
+|-------------|----------|-----------|----------------------------------------------------------------------------------------------------|
+| `path`      | `String` | `"./api"` | The relative path for lazy-rest to look for endpoints.                                             |
+| `dbPath`    | `String` | `"./db"`  | The relative path for lazy-rest to look for Mongoose configuration.                                |
+| `paramChar` | `String` | `":"`     | The character to precede named parameters in folder names. Useful when `:` is an illegal character |
 
 ## Usage
 
