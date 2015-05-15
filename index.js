@@ -1,7 +1,8 @@
 var path = require('path'),
 	fs = require('fs'),
 	glob = require('glob'),
-	extend = require('extend');
+	extend = require('extend'),
+	changeCase = require('change-case');
 
 function LazyRest(app, opts) {
 
@@ -21,7 +22,9 @@ function LazyRest(app, opts) {
 			'connect',
 			'patch'
 		],
-		path: './api'
+		path: './api',
+		db: null,
+		dbPath: null
 	}, opts || {});
 
 	opts.path = path.join(process.cwd(), path.normalize(opts.path));
@@ -54,6 +57,49 @@ function LazyRest(app, opts) {
 			console.error('An error occurred while attempting to load ' + opts.api);
 		}
 	});
+
+	opts.dbPath = path.join(process.cwd(), path.normalize(opts.dbPath));
+
+	if (opts.db !== null && opts.dbPath !== null) {
+		glob('**/schema.js', {
+			nocase: true,
+			cwd: opts.dbPath
+		},
+		function(filePaths) {
+			if (!err) {
+				filePaths.forEach(function(filePath) {
+					var name = changeCase.pascal(filePath.replace(/schema\.[\.]+$/, '')),
+						fullPath = path.join(opts.dbPath, filePath),
+						schema = new db.Schema(require(fullPath));
+
+					db.model(name, schema);
+				});
+			}
+		});
+
+		glob('**/params.js', {
+			nocase: true,
+			cwd: opts.dbPath
+		},
+		function(filePaths) {
+			if (!err) {
+				filePaths.forEach(function(filePath) {
+					var name = changeCase.pascal(filePath.replace(/params\.[^\.]+$/, '')),
+						fullPath = path.join(opts.dbPath, filePath),
+						params = require(fullPath);
+
+					Object.keys(params).forEach(function(param) {
+						app.param(param, function(req, res, next, val) {
+							var model = db.model(name);
+							params[param](req, res, next, val, model, db);
+						});
+					});
+				});
+			} else {
+
+			}
+		});
+	}
 }
 
 module.exports = LazyRest;

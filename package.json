@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/lellimecnar/lazy-rest/wiki",
   "dependencies": {
+    "change-case": "^2.3.0",
     "extend": "^2.0.1",
     "glob": "^5.0.6",
     "path": "^0.11.14"
