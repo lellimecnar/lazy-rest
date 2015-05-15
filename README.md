@@ -9,7 +9,6 @@ Create a simple REST API using just your folder structure to create endpoints.
 | `app`    | Your Express app                  |
 | `db`     | Your Mongoose database connection |
 | `opts`   | An optional configuration object  |
-|----------|-----------------------------------|
 
 ### Available options
 
@@ -18,7 +17,6 @@ Create a simple REST API using just your folder structure to create endpoints.
 | `path`      | `String` | `./api` | The relative path for lazy-rest to look for endpoints.                                             |
 | `dbPath`    | `String` | `./db`  | The relative path for lazy-rest to look for Mongoose configuration.                                |
 | `paramChar` | `String` | `:`     | The character to precede named parameters in folder names. Useful when `:` is an illegal character |
-|-------------|----------|---------|----------------------------------------------------------------------------------------------------|
 
 ## Usage
 
