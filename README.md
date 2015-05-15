@@ -34,22 +34,15 @@ lazyRest(app, {
 ```
 
 ### `methods`
+
 An array of HTTP methods to match against filenames.
 
-Available methods:
+#### Available methods:
 
-`get`
-`head`
-`post`
-`put`
-`delete`
-`trace`
-`options`
-`connect`
-`patch`
-
+`get`, `head`, `post`, `put`, `delete`, `trace`, `options`, `connect`, `patch`
 
 ### `path`
+
 The relative path where your API folder structure can be found.
 
 Defaults to `./api`
