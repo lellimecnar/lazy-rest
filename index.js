@@ -4,7 +4,12 @@ var path = require('path'),
 	extend = require('extend'),
 	changeCase = require('change-case');
 
-function LazyRest(app, opts) {
+function LazyRest(app, db, opts) {
+
+	if (typeof opts === 'undefined') {
+		opts = db;
+		delete db;
+	}
 
 	function isFunction(obj) {
 		return !!(obj && obj.constructor && obj.call && obj.apply);
@@ -60,8 +65,8 @@ function LazyRest(app, opts) {
 
 	opts.dbPath = path.join(process.cwd(), path.normalize(opts.dbPath));
 
-	if (opts.db !== null && opts.dbPath !== null) {
-		app.db = opts.db;
+	if (db !== null && opts.dbPath !== null) {
+		app.db = db;
 
 		glob('**/schema.js', {
 			nocase: true,
@@ -72,9 +77,9 @@ function LazyRest(app, opts) {
 				filePaths.forEach(function(filePath) {
 					var name = changeCase.pascal(filePath.replace('schema.js', '')),
 						fullPath = path.join(opts.dbPath, filePath),
-						schema = new opts.db.Schema(require(fullPath));
+						schema = new db.Schema(require(fullPath));
 
-					opts.db.model(name, schema);
+					db.model(name, schema);
 				});
 			}
 		});
@@ -92,8 +97,8 @@ function LazyRest(app, opts) {
 
 					Object.keys(params).forEach(function(param) {
 						app.param(param, function(req, res, next, val) {
-							var model = opts.db.model(name);
-							params[param](req, res, next, val, model, opts.db);
+							var model = db.model(name);
+							params[param](req, res, next, val, model, db);
 						});
 					});
 				});
