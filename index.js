@@ -5,30 +5,51 @@ var path = require('path'),
 	changeCase = require('change-case');
 
 function LazyRest(app, opts) {
+	var methods = [
+			'checkout',
+			'connect',
+			'copy',
+			'delete',
+			'get',
+			'head',
+			'lock',
+			'merge',
+			'mkactivity',
+			'mkcol',
+			'move',
+			'm-search',
+			'notify',
+			'options',
+			'patch',
+			'post',
+			'propfind',
+			'proppatch',
+			'purge',
+			'put',
+			'report',
+			'search',
+			'subscribe',
+			'trace',
+			'unlock',
+			'unsubscribe'
+		];
+
 	function isFunction(obj) {
 		return !!(obj && obj.constructor && obj.call && obj.apply);
 	}
 
 	opts = extend(true, {
-		methods: [
-			'get',
-			'head',
-			'post',
-			'put',
-			'delete',
-			'trace',
-			'options',
-			'connect',
-			'patch'
-		],
 		path: './api',
 		db: null,
-		dbPath: './db'
+		dbPath: './db',
+		paramChar: ':'
 	}, opts || {});
 
 	opts.path = path.join(process.cwd(), path.normalize(opts.path));
+	opts.paramChar = opts.paramChar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+	opts.paramRegex = new RegExp(opts.paramChar, 'g');
 
-	glob('**/@(' + opts.methods.join('|') + ').js', {
+	glob('**/@(' + methods.join('|') + ').js', {
 		nocase: true,
 		cwd: opts.path
 	},
@@ -43,6 +64,9 @@ function LazyRest(app, opts) {
 						m[1] = m[1].replace(/\/$/, '');
 					}
 					if (isFunction(app[m[2]])) {
+						if (opts.paramChar !== ':') {
+							m[1] = m[1].replace(opts.paramRegex, ':');
+						}
 						app[(m[2].toLowerCase())](m[1], require(fullPath)(app));
 					} else {
 						console.error(m[2] + ' is not a valid method of an Express app.');
