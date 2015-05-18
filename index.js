@@ -1,132 +1,139 @@
-var path = require('path'),
-	fs = require('fs'),
-	glob = require('glob'),
-	extend = require('extend'),
-	changeCase = require('change-case');
+var $path = require('path'),
+	$glob = require('glob'),
+	$extend = require('extend'),
+	$case = require('change-case'),
+	$ext = require('replace-ext'),
+	methods = [
+		'checkout',
+		'connect',
+		'copy',
+		'delete',
+		'get',
+		'head',
+		'lock',
+		'merge',
+		'mkactivity',
+		'mkcol',
+		'move',
+		'm-search',
+		'notify',
+		'options',
+		'patch',
+		'post',
+		'propfind',
+		'proppatch',
+		'purge',
+		'put',
+		'report',
+		'search',
+		'subscribe',
+		'trace',
+		'unlock',
+		'unsubscribe'
+	];
 
-function LazyRest(app, db, opts) {
-	db = db || null;
-	opts = opts || {};
-
-	var methods = [
-			'checkout',
-			'connect',
-			'copy',
-			'delete',
-			'get',
-			'head',
-			'lock',
-			'merge',
-			'mkactivity',
-			'mkcol',
-			'move',
-			'm-search',
-			'notify',
-			'options',
-			'patch',
-			'post',
-			'propfind',
-			'proppatch',
-			'purge',
-			'put',
-			'report',
-			'search',
-			'subscribe',
-			'trace',
-			'unlock',
-			'unsubscribe'
-		];
-
-	function isFunction(obj) {
-		return !!(obj && obj.constructor && obj.call && obj.apply);
-	}
-
-	opts = extend(true, {
-		path: './api',
-		dbPath: './db',
-		paramChar: ':'
-	}, opts);
-
-	opts.path = path.join(process.cwd(), path.normalize(opts.path));
-	opts.paramChar = opts.paramChar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-	opts.paramRegex = new RegExp(opts.paramChar, 'g');
-
-	glob('**/@(' + methods.join('|') + ').js', {
-		nocase: true,
-		cwd: opts.path
-	},
-	function(err, filePaths) {
-		if (!err) {
-			filePaths.forEach(function(filePath) {
-				var fullPath = path.join(opts.path, filePath),
-					m = ('/' + filePath).match(/^(.*\/)(.+)\.js$/);
-
-				if (m) {
-					if (m[1] !== '/') {
-						m[1] = m[1].replace(/\/$/, '');
-					}
-					if (isFunction(app[m[2]])) {
-						if (opts.paramChar !== ':') {
-							m[1] = m[1].replace(opts.paramRegex, ':');
-						}
-						app[(m[2].toLowerCase())](m[1], require(fullPath)(app));
-					} else {
-						console.error(m[2] + ' is not a valid method of an Express app.');
-					}
-				} else {
-					console.error('An error occurred while attempting to load ' + fullPath);
-				}
-
-			});
-		} else {
-			console.error('An error occurred while attempting to load ' + opts.api);
-		}
-	});
-
-	opts.dbPath = path.join(process.cwd(), path.normalize(opts.dbPath));
-
-	if (db && opts.dbPath) {
-		app.db = db;
-
-		glob('**/schema.js', {
-			nocase: true,
-			cwd: opts.dbPath
-		},
-		function(err, filePaths) {
-			if (!err) {
-				filePaths.forEach(function(filePath) {
-					var name = changeCase.pascal(filePath.replace('schema.js', '')),
-						fullPath = path.join(opts.dbPath, filePath),
-						schema = new db.Schema(require(fullPath));
-
-					db.model(name, schema);
-				});
-			}
-		});
-
-		glob('**/params.js', {
-			nocase: true,
-			cwd: opts.dbPath
-		},
-		function(err, filePaths) {
-			if (!err) {
-				filePaths.forEach(function(filePath) {
-					var name = changeCase.pascal(filePath.replace('params.js', '')),
-						fullPath = path.join(opts.dbPath, filePath),
-						params = require(fullPath);
-
-					Object.keys(params).forEach(function(param) {
-						app.param(param, function(req, res, next, val) {
-							var model = db.model(name);
-							params[param](req, res, next, val, model, db);
-						});
-					});
-				});
-			} else {
-
-			}
-		});
-	}
+function isFn(obj) {
+	return !!(obj && obj.constructor && obj.call && obj.apply);
 }
 
-module.exports = LazyRest;
+exports = module.exports = function(app, db) {
+	if (!app) {
+		throw new TypeError('Express app required');
+	}
+
+	db = db || null;
+
+	return function(apiRoot, opts) {
+		apiRoot = apiRoot || '/api';
+		opts = opts || {};
+
+		if (typeof apiRoot !== 'string') {
+			opts = apiRoot;
+			apiRoot = '/api';
+		}
+
+		apiRoot = '/' + apiRoot.replace(/^\/|\/$/g, '');
+
+		opts = $extend(true, {
+			root: './api',
+			dbRoot: './db',
+			paramPrefix: ':'
+		}, opts);
+
+		opts.root = $path.join(process.cwd(), $path.normalize(opts.root));
+		opts.paramPrefix = opts.paramPrefix.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+		opts.paramRegex = new RegExp(opts.paramPrefix, 'g');
+
+		$glob('**/@(' + methods.join('|') + ').js', {
+			nocase: true,
+			cwd: opts.root
+		}, function(err, files) {
+			if (!err) {
+				files.forEach(function(file) {
+					var path = $path.join(opts.root, file),
+						m = ('/' + file).match(/^(.*\/)(.+)\.js$/);
+
+					if (m) {
+						route = $path.join(apiRoot, m[1]);
+						method = m[2].toLowerCase();
+
+						if (route !== '/') {
+							route = route.replace(/\/$/, '');
+						}
+
+						if (isFn(app[method])) {
+							if (opts.paramPrefix !== ':') {
+								route = route.replace(opts.paramRegex, ':');
+							}
+							app[method](route, require(path));
+						}
+					}
+				});
+			}
+		});
+
+		if (db && opts.dbRoot) {
+			opts.dbRoot = $path.join(process.cwd(), $path.normalize(opts.dbRoot));
+
+			app.db = db;
+
+			$glob('**/schema.js', {
+				nocase: true,
+				cwd: opts.dbRoot
+			}, function(err, files) {
+				if (!err) {
+					files.forEach(function(file) {
+						var name = $case.pascal($path.dirname(file)),
+							path = $path.join(opts.dbRoot, file),
+							schema = new db.Schema(require(path));
+
+						db.model(name, schema);
+					});
+				}
+			});
+
+			$glob('**/params/*.js', {
+				nocase: true,
+				cwd: opts.dbRoot
+			}, function(err, files) {
+				if (!err) {
+					files.forEach(function(file) {
+						var name = $case.pascal($path.dirname($path.dirname(file))),
+							path = $path.join(opts.dbRoot, file),
+							key = $ext($path.basename(file), '');
+
+						app.param(key, function(req, res, next, val) {
+							var model = db.model(name);
+							require(path)(req, res, next, val, model);
+						});
+					});
+				}
+			});
+		}
+
+		return function(req, res, next) {
+			// For possible future use...
+			next();
+		};
+	};
+};
