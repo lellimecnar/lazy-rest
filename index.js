@@ -3,6 +3,7 @@ var $path = require('path'),
 	$extend = require('extend'),
 	$case = require('change-case'),
 	$ext = require('replace-ext'),
+	$diff = require('object-diff'),
 	methods = [
 		'checkout',
 		'connect',
@@ -64,35 +65,43 @@ exports = module.exports = function(app, db) {
 		opts.paramPrefix = opts.paramPrefix.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
 		opts.paramRegex = new RegExp(opts.paramPrefix, 'g');
 
-		$glob('**/@(' + methods.join('|') + ').js', {
+		$glob.sync('**/@(' + methods.join('|') + ').js', {
 			nocase: true,
 			cwd: opts.root
-		}, function(err, files) {
-			if (!err) {
-				files.forEach(function(file) {
-					var path = $path.join(opts.root, file),
-						m = ('/' + file).match(/^(.*\/)(.+)\.js$/);
+		}).forEach(function(file) {
+			var path = $path.join(opts.root, file),
+				m = ('/' + file).match(/^(.*\/)(.+)\.js$/);
 
-					if (m) {
-						route = $path.join(apiRoot, m[1]);
-						method = m[2].toLowerCase();
+			if (m) {
+				route = $path.join(apiRoot, m[1]);
+				method = m[2].toLowerCase();
 
-						if (route !== '/') {
-							route = route.replace(/\/$/, '');
-						}
+				if (route !== '/') {
+					route = route.replace(/\/$/, '');
+				}
 
-						if (isFn(app[method])) {
-							if (opts.paramPrefix !== ':') {
-								route = route.replace(opts.paramRegex, ':');
-							}
-							app[method](route, require(path));
-						}
+				if (isFn(app[method])) {
+					if (opts.paramPrefix !== ':') {
+						route = route.replace(opts.paramRegex, ':');
 					}
-				});
+					app[method](route, require(path));
+				}
 			}
 		});
 
 		if (db && opts.dbRoot) {
+			var routes = [];
+			app._router.stack
+				.forEach(function(route) {
+					if (route.route) {
+						Object.keys(route.route.methods).forEach(function(method) {
+							if (route.route.methods[method]) {
+								routes.push($path.join(route.route.path, method));
+							}
+						});
+					}
+				});
+
 			opts.dbRoot = $path.join(process.cwd(), $path.normalize(opts.dbRoot));
 
 			app.db = db;
@@ -102,12 +111,55 @@ exports = module.exports = function(app, db) {
 				cwd: opts.dbRoot
 			}, function(err, files) {
 				if (!err) {
+					function modelCallback(res) {
+						return function(err, result) {
+							if (!err) {
+								res.json(result);
+							} else {
+								res.status(500).send(err);
+							}
+						}
+					}
 					files.forEach(function(file) {
 						var name = $case.pascal($path.dirname(file)),
 							path = $path.join(opts.dbRoot, file),
-							schema = new db.Schema(require(path));
+							schema = new db.Schema(require(path)),
+							model = db.model(name, schema),
+							uri = $path.join(apiRoot, model.collection.name),
+							paramName = name.toLowerCase() + 'Id',
+							paramKey = ':' + paramName;
 
-						db.model(name, schema);
+						if (routes.indexOf($path.join(uri, 'get')) < 0) {
+							app.get(uri, function(req, res, next) {
+								model.find({}, modelCallback(res));
+							});
+						}
+
+						if (routes.indexOf($path.join(uri, paramKey, 'get')) < 0) {
+							app.get($path.join(uri, paramKey), function(req, res, next) {
+								model.findById(req.params[paramName]._id, modelCallback(res));
+							});
+						}
+
+						if (routes.indexOf($path.join(uri, 'post')) < 0) {
+							app.post(uri, function(req, res, next) {
+								model.create(req.body, modelCallback(res));
+							});
+						}
+
+						if (routes.indexOf($path.join(uri, paramKey, 'put')) < 0) {
+							app.put($path.join(uri, paramKey), function(req, res, next) {
+								model.findByIdAndUpdate(req.params[paramName]._id, {
+									$set: $diff(req.params[paramName], req.body)
+								}, modelCallback(res));
+							});
+						}
+
+						if (routes.indexOf($path.join(uri, paramKey, 'delete')) < 0) {
+							app.delete($path.join(uri, paramKey), function(req, res, next) {
+								model.findByIdAndRemove(req.params[paramName]._id, modelCallback(res));
+							});
+						}
 					});
 				}
 			});
@@ -126,6 +178,25 @@ exports = module.exports = function(app, db) {
 							var model = db.model(name);
 							require(path)(req, res, next, val, model);
 						});
+					});
+
+					var params = Object.keys(app._router.params);
+					
+					Object.keys(app.db.models).forEach(function(modelName) {
+						modelName = modelName.toLowerCase();
+						var paramKey = modelName + 'Id';
+						if (params.indexOf(paramKey) < 0) {
+							app.param(paramKey, function(req, res, next, val) {
+								db.model(modelName).findById(val, function(err, result) {
+									if (!err) {
+										req[modelName] = result;
+										next();
+									} else {
+										req.state(500).send(err);
+									}
+								});
+							});
+						}
 					});
 				}
 			});

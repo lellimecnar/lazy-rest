@@ -85,6 +85,20 @@ module.exports = function(req, res, next, val, model) {
 };
 ```
 
+## Automatic Endpoint Creation
+
+If a Mongoose db connection is supplied, lazy-rest will automatically create some basic CRUD endpoints for each collection, as well as their cooresponding id parameter keys. These can easily be overridden by supplying the matching files.
+
+Remember: the collection name is the pluralized version of the model name, so a file at `./db/author/schema.js` will result in a collection called `authors`, and endpoints at `/api/authors/...`.
+
+Here are the endpoints which are automatically created for each collection:
+
+* `GET /api/<collection>` Returns a list of all documents.
+* `GET /api/<collection>/:authorId` Returns a single document.
+* `POST /api/<collection>` Creates a new document.
+* `PUT /api/<collection>/:authorId` Updates an existing document.
+* `DELETE /api/<collection>/:authorId` Deletes an existing document.
+
 #### Available HTTP Methods
 
 * `checkout`
