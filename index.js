@@ -111,10 +111,11 @@ exports = module.exports = function(app, db) {
 				cwd: opts.dbRoot
 			}, function(err, files) {
 				if (!err) {
-					function modelCallback(res) {
+					function modelCallback(res, next) {
 						return function(err, result) {
 							if (!err) {
 								res.json(result);
+								next();
 							} else {
 								res.status(500).send(err);
 							}
@@ -131,33 +132,34 @@ exports = module.exports = function(app, db) {
 
 						if (routes.indexOf($path.join(uri, 'get')) < 0) {
 							app.get(uri, function(req, res, next) {
-								model.find({}, modelCallback(res));
+								model.find({}, modelCallback(res, next));
 							});
 						}
 
 						if (routes.indexOf($path.join(uri, paramKey, 'get')) < 0) {
 							app.get($path.join(uri, paramKey), function(req, res, next) {
-								model.findById(req.params[paramName]._id, modelCallback(res));
+								res.json(req[name]);
+								next();
 							});
 						}
 
 						if (routes.indexOf($path.join(uri, 'post')) < 0) {
 							app.post(uri, function(req, res, next) {
-								model.create(req.body, modelCallback(res));
+								model.create(req.body, modelCallback(res, next));
 							});
 						}
 
 						if (routes.indexOf($path.join(uri, paramKey, 'put')) < 0) {
 							app.put($path.join(uri, paramKey), function(req, res, next) {
-								model.findByIdAndUpdate(req.params[paramName]._id, {
+								model.findByIdAndUpdate(req.params[paramName], {
 									$set: $diff(req.params[paramName], req.body)
-								}, modelCallback(res));
+								}, modelCallback(res, next));
 							});
 						}
 
 						if (routes.indexOf($path.join(uri, paramKey, 'delete')) < 0) {
 							app.delete($path.join(uri, paramKey), function(req, res, next) {
-								model.findByIdAndRemove(req.params[paramName]._id, modelCallback(res));
+								model.findByIdAndRemove(req.params[paramName], modelCallback(res, next));
 							});
 						}
 					});
@@ -183,8 +185,7 @@ exports = module.exports = function(app, db) {
 					var params = Object.keys(app._router.params);
 					
 					Object.keys(app.db.models).forEach(function(modelName) {
-						modelName = modelName.toLowerCase();
-						var paramKey = modelName + 'Id';
+						var paramKey = modelName.toLowerCase() + 'Id';
 						if (params.indexOf(paramKey) < 0) {
 							app.param(paramKey, function(req, res, next, val) {
 								db.model(modelName).findById(val, function(err, result) {
