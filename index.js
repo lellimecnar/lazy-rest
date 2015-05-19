@@ -4,6 +4,7 @@ var $path = require('path'),
 	$case = require('change-case'),
 	$ext = require('replace-ext'),
 	$diff = require('object-diff'),
+	$mongoQuery = require('mongoose-api-query'),
 	methods = [
 		'checkout',
 		'connect',
@@ -124,15 +125,18 @@ exports = module.exports = function(app, db) {
 					files.forEach(function(file) {
 						var name = $case.pascal($path.dirname(file)),
 							path = $path.join(opts.dbRoot, file),
-							schema = new db.Schema(require(path)),
-							model = db.model(name, schema),
+							schema = new db.Schema(require(path));
+
+						schema.plugin($mongoQuery);
+
+						var model = db.model(name, schema),
 							uri = $path.join(apiRoot, model.collection.name),
 							paramName = name.toLowerCase() + 'Id',
 							paramKey = ':' + paramName;
 
 						if (routes.indexOf($path.join(uri, 'get')) < 0) {
 							app.get(uri, function(req, res, next) {
-								model.find({}, modelCallback(res, next));
+								model.apiQuery(req.query, modelCallback(res, next));
 							});
 						}
 
