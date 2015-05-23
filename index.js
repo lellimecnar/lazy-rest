@@ -125,7 +125,18 @@ exports = module.exports = function(app, db) {
 					files.forEach(function(file) {
 						var name = $case.pascal($path.dirname(file)),
 							path = $path.join(opts.dbRoot, file),
-							schema = new db.Schema(require(path));
+							definition = require(path),
+							schema;
+
+						if (isFn(definition)) {
+							definition = definition(app);
+						}
+
+						if (definition instanceof db.Schema) {
+							schema = definition;
+						} else {
+							schema = new db.Schema(definition);
+						}
 
 						schema.plugin($mongoQuery);
 
