@@ -1,10 +1,10 @@
 var $path = require('path'),
-	$glob = require('glob'),
-	$extend = require('extend'),
+	$glob = require('glob').sync,
 	$case = require('change-case'),
-	$ext = require('replace-ext'),
-	$diff = require('object-diff'),
-	$mongoQuery = require('mongoose-api-query'),
+	$express = require('express'),
+	$util = require('util'),
+	$random = require('random-ext'),
+	_ = require('lodash'),
 	methods = [
 		'checkout',
 		'connect',
@@ -32,195 +32,337 @@ var $path = require('path'),
 		'trace',
 		'unlock',
 		'unsubscribe'
-	];
+	],
+	dbRoutes = {},
+	routerConfigured = false,
+	authConfigured = false,
+	dbConfigured = false;
 
-function isFn(obj) {
-	return !!(obj && obj.constructor && obj.call && obj.apply);
-}
+exports = module.exports = function(app, db, passport) {
+	var $this = this;
+	
+	this.app = app || $express();
+	this.db = db || null;
+	this.passport = passport || require('passport');
 
-exports = module.exports = function(app, db) {
-	if (!app) {
-		throw new TypeError('Express app required');
+	this.routes = {};
+	this.authFn = $this.passport.authenticate([
+			'basic', 'bearer'
+		], { session: false })
+
+	this.getHandlers = function() {
+		return $this.app._router.stack.map(function(item) {
+			return item.handle.name;
+		});
 	}
 
-	db = db || null;
-
-	return function(apiRoot, opts) {
-		apiRoot = apiRoot || '/api';
-		opts = opts || {};
-
-		if (typeof apiRoot !== 'string') {
-			opts = apiRoot;
-			apiRoot = '/api';
+	this.addRoute = function(method, uri, auth, fn) {
+		if (uri !== '/') {
+			uri = uri.replace(/\/$/, '');
 		}
 
-		apiRoot = '/' + apiRoot.replace(/^\/|\/$/g, '');
+		$this.routes[uri] = $this.routes[uri] || {};
+		$this.routes[uri][method] = {
+			auth: auth,
+			fn: fn
+		};
+	};
 
-		opts = $extend(true, {
-			root: './api',
-			dbRoot: './db',
-			paramPrefix: ':'
-		}, opts);
+	return {
+		router: routerFactory.bind($this),
+		auth: authFactory.bind($this),
+		db: dbFactory.bind($this)
+	};
+};
 
-		opts.root = $path.join(process.cwd(), $path.normalize(opts.root));
-		opts.paramPrefix = opts.paramPrefix.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-		opts.paramRegex = new RegExp(opts.paramPrefix, 'g');
+function modelCallback(res, next) {
+	return function(err, result) {
+		if (!err) {
+			res.json(result);
+			next();
+		} else {
+			res.status(500).send(err);
+		}
+	}
+}
 
-		$glob.sync('**/@(' + methods.join('|') + ').js', {
-			nocase: true,
-			cwd: opts.root
-		}).forEach(function(file) {
-			var path = $path.join(opts.root, file),
-				m = ('/' + file).match(/^(.*\/)(.+)\.js$/);
+function randomStr(min, max) {
+	max = max || min;
 
-			if (m) {
-				route = $path.join(apiRoot, m[1]);
-				method = m[2].toLowerCase();
+	return $random.restrictedString([
+		$random.CHAR_TYPE.UPPERCASE,
+		$random.CHAR_TYPE.LOWERCASE,
+		$random.CHAR_TYPE.NUMERIC,
+	], min, max);
+}
 
-				if (route !== '/') {
-					route = route.replace(/\/$/, '');
-				}
+function routerFactory(opts) {
+	var $this = this,
+		$bodyParser = require('body-parser');
 
-				if (isFn(app[method])) {
-					if (opts.paramPrefix !== ':') {
-						route = route.replace(opts.paramRegex, ':');
+	routerConfigured = true;
+
+	opts = _.extend({
+		root: './api',
+		paramPrefix: ':'
+	}, opts || {});
+
+	opts.root = $path.resolve(process.cwd(), opts.root);
+	opts.paramPrefix = _.escapeRegExp(opts.paramPrefix);
+	opts.paramPrefix = new RegExp(opts.paramPrefix, 'g');
+
+	var Router = $express.Router(),
+		handlers = $this.getHandlers(),
+		routes = {};
+
+	if (!_.contains(handlers, 'jsonParser')) {
+		$this.app.use($bodyParser.json());
+	}
+
+	if (!_.contains(handlers, 'urlencodedParser')) {
+		$this.app.use($bodyParser.urlencoded({
+			extended: true
+		}));
+	}
+
+	$glob('**/@(' + methods.join('|') + ').js', {
+		nocase: true,
+		cwd: opts.root
+	}).forEach(function(file) {
+		var path = $path.join(opts.root, file),
+			m = ('/' + file).match(/^(.*\/)(.+)\.js$/),
+			args = [],
+			uri, method, route, routeFn, auth;
+
+		if (m && m[1] && m[2]) {
+			routeFn = require(path);
+			auth = routeFn.$auth;
+			delete routeFn.$auth;
+
+			uri = m[1].replace(opts.paramPrefix, ':');
+			method = m[2].toLowerCase();
+
+			$this.addRoute(method, uri, auth, routeFn);
+
+		}
+	});
+	
+	$this.addRoute('options', '/', false, function(req, res, next) {
+		var endpoints = [],
+			path;
+
+		Router.stack.forEach(function(item) {
+			if (item.route) {
+				path = item.route.path;
+				item.route.stack.forEach(function(route) {
+					endpoints.push({
+						path: path,
+						method: route.method
+					});
+				});
+			}
+		})
+		res.json(endpoints);
+	});
+
+	_.forEach($this.routes, function(routes, uri) {
+		var router = Router.route(uri);
+		_.forEach(routes, function(route, method) {
+			if (
+				_.isFunction(router[method]) &&
+				_.isFunction(route.fn)
+			) {
+				var args = [route.fn];
+
+				if (route.auth) {
+					if (
+						authConfigured &&
+						$this.passport
+					) {
+						args.unshift($this.authFn);
+					} else {
+						throw new Error('lazy-rest: auth must be configured for ' + method + ': ' + uri);
 					}
-					app[method](route, require(path));
 				}
+
+				router[method].apply(router, args);
 			}
 		});
+	});
 
-		if (db && opts.dbRoot) {
-			var routes = [];
-			app._router.stack
-				.forEach(function(route) {
-					if (route.route) {
-						Object.keys(route.route.methods).forEach(function(method) {
-							if (route.route.methods[method]) {
-								routes.push($path.join(route.route.path, method));
-							}
-						});
-					}
+	return Router;
+};
+
+function authFactory(opts) {
+	var $this = this,
+		handlers = $this.getHandlers();
+
+	authConfigured = true;
+
+	if (routerConfigured) {
+		throw new Error('lazy-rest: auth must be configured before router');
+	}
+
+	if (!dbConfigured || !$this.db) {
+		throw new Error('lazy-rest: db must be configured before auth');
+	}
+
+	opts = _.extend({
+		sessionSecret: 'Super Secret Session Key'
+	}, opts || {});
+
+	$this.passport = require('./auth/config')($this.passport, opts, $this.db);
+
+	if (!_.contains(handlers, 'session')) {
+		$this.app.use(require('express-session')({
+			secret: opts.sessionSecret,
+			saveUninitialized: true,
+			resave: true
+		}));
+	}
+
+	oauth2 = require('./auth/oauth2');
+
+	$this.addRoute('get', '/authorize', true, oauth2.authorization);
+	$this.addRoute('post', '/authorize', true, oauth2.decision);
+	$this.addRoute('post', '/token', true, oauth2.token);
+
+	$this.addRoute('post', '/users', false, function(req, res, next) {
+		req.app.db.model('ApiUser')
+			.create(req.body, modelCallback(res, next));
+	});
+	$this.addRoute('get', '/users', true, function(req, res, next) {
+		req.app.db.model('ApiUser')
+			.apiQuery(req.query, modelCallback(res, next));
+	});
+
+	$this.addRoute('post', '/clients', true, function(req, res, next) {
+		req.body.userId = req.user._id;
+
+		req.body.id = randomStr(32);
+		req.body.secret = randomStr(48);
+
+		req.app.db.model('Client')
+			.create(req.body, modelCallback(res, next));
+	});
+	$this.addRoute('get', '/clients', true, function(req, res, next) {
+		req.app.db.model('Client')
+			.find({ userId: req.user._id }, modelCallback(res, next));
+	});
+
+	return $this.passport.initialize();
+};
+
+function dbFactory(opts) {
+	var $this = this,
+		$apiQuery = require('mongoose-api-query'),
+		$mongo = require('mongoose'),
+		mongoUrl;
+
+	dbConfigured = true;
+
+	if (routerConfigured) {
+		throw new Error('lazy-rest: db must be configured before router');
+	}
+
+	if (authConfigured) {
+		throw new Error('lazy-rest: db must be configured before auth');
+	}
+
+	opts = _.extend({
+		root: './db',
+		host: '127.0.0.1',
+		db: 'lazy-rest',
+		port: 27017,
+		options: {}
+	}, opts || {});
+
+	opts.root = $path.resolve(process.cwd(), opts.root);
+
+	mongoUrl = 'mongodb://' + opts.host + ':' + opts.port + '/' + opts.db;
+
+	$this.db = $this.db || $mongo.connect(mongoUrl);
+
+	$mongo.connection = $this.db;
+
+	$this.app.db = $this.db;
+
+	$glob('**/schema.js', {
+		nocase: true,
+		cwd: opts.root
+	}).forEach(function(file) {
+		var name = $case.pascal($path.dirname(file)),
+			path = $path.join(opts.root, file),
+			definition = require(path),
+			disable, auth, schema, model, uri, paramName, paramKey;
+
+		if (_.isFunction(definition)) {
+			definition = definition(app);
+		}
+
+		if (definition instanceof $mongo.Schema) {
+			schema = definition;
+		} else {
+			auth = definition.$auth || false;
+			delete definition.$auth;
+			disable = definition.$disable || [];
+			delete definition.$disable;
+
+			schema = new $mongo.Schema(definition);
+		}
+
+		schema.plugin($apiQuery);
+
+		model = $this.db.model(name, schema);
+		uri = '/' + model.collection.name;
+		paramName = name.toLowerCase() + 'Id';
+		paramKey = ':' + paramName,
+		paramUri = $path.join(uri, paramKey);
+
+		function isAuth(method) {
+			return auth === true || _.contains(auth, method);
+		}
+
+		function isEnabled(method) {
+			return !_.contains(disable, method);
+		}
+
+		if (isEnabled('get')) {
+			if (isEnabled('query')) {
+				$this.addRoute('get', uri, isAuth('get'), function(req, res, next) {
+					model.apiQuery(req.query, modelCallback(res, next));
 				});
+			}
 
-			opts.dbRoot = $path.join(process.cwd(), $path.normalize(opts.dbRoot));
+			if (isEnabled('getOne')) {
+				$this.addRoute('get', paramUri, isAuth('get'), function(req, res, next) {
+					model.findById(req.params[paramName], modelCallback(res, next));
+				});
+			}
+		}
 
-			app.db = db;
-
-			$glob('**/schema.js', {
-				nocase: true,
-				cwd: opts.dbRoot
-			}, function(err, files) {
-				if (!err) {
-					function modelCallback(res, next) {
-						return function(err, result) {
-							if (!err) {
-								res.json(result);
-								next();
-							} else {
-								res.status(500).send(err);
-							}
-						}
-					}
-					files.forEach(function(file) {
-						var name = $case.pascal($path.dirname(file)),
-							path = $path.join(opts.dbRoot, file),
-							definition = require(path),
-							schema;
-
-						if (isFn(definition)) {
-							definition = definition(app);
-						}
-
-						if (definition instanceof db.Schema) {
-							schema = definition;
-						} else {
-							schema = new db.Schema(definition);
-						}
-
-						schema.plugin($mongoQuery);
-
-						var model = db.model(name, schema),
-							uri = $path.join(apiRoot, model.collection.name),
-							paramName = name.toLowerCase() + 'Id',
-							paramKey = ':' + paramName;
-
-						if (routes.indexOf($path.join(uri, 'get')) < 0) {
-							app.get(uri, function(req, res, next) {
-								model.apiQuery(req.query, modelCallback(res, next));
-							});
-						}
-
-						if (routes.indexOf($path.join(uri, paramKey, 'get')) < 0) {
-							app.get($path.join(uri, paramKey), function(req, res, next) {
-								res.json(req[name]);
-								next();
-							});
-						}
-
-						if (routes.indexOf($path.join(uri, 'post')) < 0) {
-							app.post(uri, function(req, res, next) {
-								model.create(req.body, modelCallback(res, next));
-							});
-						}
-
-						if (routes.indexOf($path.join(uri, paramKey, 'put')) < 0) {
-							app.put($path.join(uri, paramKey), function(req, res, next) {
-								model.findByIdAndUpdate(req.params[paramName], {
-									$set: $diff(req.params[paramName], req.body)
-								}, modelCallback(res, next));
-							});
-						}
-
-						if (routes.indexOf($path.join(uri, paramKey, 'delete')) < 0) {
-							app.delete($path.join(uri, paramKey), function(req, res, next) {
-								model.findByIdAndRemove(req.params[paramName], modelCallback(res, next));
-							});
-						}
-					});
-				}
-			});
-
-			$glob('**/params/*.js', {
-				nocase: true,
-				cwd: opts.dbRoot
-			}, function(err, files) {
-				if (!err) {
-					files.forEach(function(file) {
-						var name = $case.pascal($path.dirname($path.dirname(file))),
-							path = $path.join(opts.dbRoot, file),
-							key = $ext($path.basename(file), '');
-
-						app.param(key, function(req, res, next, val) {
-							var model = db.model(name);
-							require(path)(req, res, next, val, model);
-						});
-					});
-
-					var params = Object.keys(app._router.params);
-					
-					Object.keys(app.db.models).forEach(function(modelName) {
-						var paramKey = modelName.toLowerCase() + 'Id';
-						if (params.indexOf(paramKey) < 0) {
-							app.param(paramKey, function(req, res, next, val) {
-								db.model(modelName).findById(val, function(err, result) {
-									if (!err) {
-										req[modelName] = result;
-										next();
-									} else {
-										req.state(500).send(err);
-									}
-								});
-							});
-						}
-					});
-				}
+		if (isEnabled('post')) {
+			$this.addRoute('post', uri, isAuth('post'), function() {
+				model.create(req.body, modelCallback(res,next));
 			});
 		}
 
-		return function(req, res, next) {
-			// For possible future use...
-			next();
-		};
+		if (isEnabled('put')) {
+			$this.addRoute('put', paramUri, isAuth('put'), function(req, res, next) {
+				model.findByIdAndUpdate(req.params[paramName], {
+					$set: req.body
+				}, modelCallback(res, next));
+			});
+		}
+
+		if (isEnabled('delete')) {
+			$this.addRoute('delete', paramUri, isAuth('delete'), function(req, res, next) {
+				model.findByIdAndRemove(req.params[paramName], modelCallback(res, next));
+			});
+		}
+	});
+
+	return function(req, res, next) {
+		next();
 	};
 };
