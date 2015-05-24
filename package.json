@@ -1,6 +1,6 @@
 {
   "name": "lazy-rest",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "description": "Create a simple REST API using just your folder structure to create endpoints",
   "main": "index.js",
   "scripts": {
