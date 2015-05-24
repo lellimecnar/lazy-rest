@@ -2,7 +2,7 @@ var $oauth2orize = require('oauth2orize'),
 	_ = require('lodash'),
 	$mongoose = require('mongoose'),
 	db = $mongoose.connection,
-	User = db.model('ApiUser'),
+	User = db.model('User'),
 	Client = db.model('Client'),
 	Token = db.model('Token'),
 	Code = db.model('Code'),
@@ -64,20 +64,32 @@ server.exchange($oauth2orize.exchange.code(function(client, code, redirectUri, c
 	});
 }));
 
+
 exports.authorization = [
-	server.authorization(function(clientId, redirectUri, callback) {
-
-		Client.find({id: clientId}, function (err, client) {
-			if (err) { return callback(err); }
-
-			return callback(null, client, redirectUri);
+	server.authorization(function(clientId, redirectUri, done) {
+		Client.findOne(clientId, function (err, client) {
+			if (err) { return done(err); }
+			if (!client) { return done(null, false); }
+			return done(null, client, redirectUri);
 		});
 	}),
 	function(req, res){
+		var user = _.cloneDeep(req.user)._doc,
+			client = _.cloneDeep(req.oauth2.client)._doc;
+
+		delete user._id;
+		delete user.__v;
+		delete user.password;
+
+		delete client._id;
+		delete client.__v;
+		delete client.secret;
+		delete client.userId;
+
 		res.json({
-			transactionID: req.oauth2.transactionID,
-			user: req.user,
-			client: req.oauth2.client
+			transactionId: req.oauth2.transactionID,
+			user: user,
+			client: client
 		});
 	}
 ];

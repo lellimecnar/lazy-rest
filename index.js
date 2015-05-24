@@ -4,6 +4,7 @@ var $path = require('path'),
 	$express = require('express'),
 	$util = require('util'),
 	$random = require('random-ext'),
+	$ext = require('replace-ext'),
 	_ = require('lodash'),
 	methods = [
 		'checkout',
@@ -46,9 +47,15 @@ exports = module.exports = function(app, db, passport) {
 	this.passport = passport || require('passport');
 
 	this.routes = {};
-	this.authFn = $this.passport.authenticate([
-			'basic', 'bearer'
-		], { session: false })
+	this.authFn = $this.passport.authenticate(
+		[ 'basic', 'bearer'],
+		{ session: false });
+	this.clientAuthFn = $this.passport.authenticate(
+		'client-basic',
+		{ session : false });
+	this.bearerAuthFn = $this.passport.authenticate(
+		'bearer',
+		{ session: false });
 
 	this.getHandlers = function() {
 		return $this.app._router.stack.map(function(item) {
@@ -170,7 +177,10 @@ function routerFactory(opts) {
 		_.forEach(routes, function(route, method) {
 			if (
 				_.isFunction(router[method]) &&
-				_.isFunction(route.fn)
+				(
+					_.isFunction(route.fn) ||
+					_.isArray(route.fn)
+				)
 			) {
 				var args = [route.fn];
 
@@ -179,7 +189,11 @@ function routerFactory(opts) {
 						authConfigured &&
 						$this.passport
 					) {
-						args.unshift($this.authFn);
+						if (_.isFunction(route.auth)) {
+							args.unshift(route.auth);
+						} else {
+							args.unshift($this.authFn);
+						}
 					} else {
 						throw new Error('lazy-rest: auth must be configured for ' + method + ': ' + uri);
 					}
@@ -208,10 +222,14 @@ function authFactory(opts) {
 	}
 
 	opts = _.extend({
-		sessionSecret: 'Super Secret Session Key'
+		sessionSecret: 'Super Secret Session Key',
+		UserSchema: {},
+		ClientSchema: {},
+		TokenSchema: {},
+		CodeSchema: {}
 	}, opts || {});
 
-	$this.passport = require('./auth/config')($this.passport, opts, $this.db);
+	$this.passport = require('./auth/config')($this.passport, opts);
 
 	if (!_.contains(handlers, 'session')) {
 		$this.app.use(require('express-session')({
@@ -225,14 +243,17 @@ function authFactory(opts) {
 
 	$this.addRoute('get', '/authorize', true, oauth2.authorization);
 	$this.addRoute('post', '/authorize', true, oauth2.decision);
-	$this.addRoute('post', '/token', true, oauth2.token);
+	$this.addRoute('get', '/callback', false, function(req, res, next) {
+		res.json(req.query);
+	});
+	$this.addRoute('post', '/token', $this.clientAuthFn, oauth2.token);
 
 	$this.addRoute('post', '/users', false, function(req, res, next) {
-		req.app.db.model('ApiUser')
+		req.app.db.model('User')
 			.create(req.body, modelCallback(res, next));
 	});
 	$this.addRoute('get', '/users', true, function(req, res, next) {
-		req.app.db.model('ApiUser')
+		req.app.db.model('User')
 			.apiQuery(req.query, modelCallback(res, next));
 	});
 
@@ -287,7 +308,7 @@ function dbFactory(opts) {
 
 	$this.app.db = $this.db;
 
-	$glob('**/schema.js', {
+	$glob('{**/schema.js,*.js}', {
 		nocase: true,
 		cwd: opts.root
 	}).forEach(function(file) {
@@ -295,6 +316,10 @@ function dbFactory(opts) {
 			path = $path.join(opts.root, file),
 			definition = require(path),
 			disable, auth, schema, model, uri, paramName, paramKey;
+
+		if (!name) {
+			name = $case.pascal($ext(file, ''));
+		}
 
 		if (_.isFunction(definition)) {
 			definition = definition(app);

@@ -4,10 +4,10 @@ module.exports = function($passport, opts) {
 
 	var BasicStrategy = require('passport-http').BasicStrategy,
 		BearerStrategy = require('passport-http-bearer').Strategy,
-		User = opts.UserSchema || require('./models/user'),
-		Client = opts.ClientSchema || require('./models/client'),
-		Token = opts.TokenSchema || require('./models/token'),
-		Code = opts.CodeSchema || require('./models/code');
+		User = require('./models/user')(opts.UserSchema),
+		Client = require('./models/client')(opts.ClientSchema),
+		Token = require('./models/token')(opts.TokenSchema),
+		Code = require('./models/code')(opts.CodeSchema);
 
 	$passport.use(opts.basic || new BasicStrategy(
 	  function(username, password, callback) {
@@ -66,5 +66,5 @@ module.exports = function($passport, opts) {
 	  }
 	));
 
-return $passport;
+	return $passport;
 };

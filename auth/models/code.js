@@ -1,23 +1,34 @@
-var $mongoose = require('mongoose'),
-	db = $mongoose.connection;
+module.exports = function(customSchema) {
+	var _ = require('lodash'),
+		$mongoose = require('mongoose'),
+		db = $mongoose.connection,
+		CodeSchema;
 
-var CodeSchema = new $mongoose.Schema({
-	value: {
-		type: String,
-		required: true
-	},
-	redirectUri: {
-		type: String,
-		required: true
-	},
-	userId: {
-		type: String,
-		required: true
-	},
-	clientId: {
-		type: String,
-		required: true
+
+	if (! customSchema || _.isPlainObject(customSchema)) {
+		CodeSchema = new $mongoose.Schema(_.extend({
+			value: {
+				type: String,
+				required: true
+			},
+			redirectUri: {
+				type: String,
+				required: true
+			},
+			userId: {
+				type: String,
+				required: true
+			},
+			clientId: {
+				type: String,
+				required: true
+			}
+		}, customSchema || {}));
+	} else if (customSchema instanceof $mongoose.Schema) {
+		CodeSchema = customSchema;
+	} else {
+		throw new Error('lazy-rest: invalid schema for Code');
 	}
-});
 
-module.exports = db.model('Code', CodeSchema);
+	return db.model('Code', CodeSchema);
+}
