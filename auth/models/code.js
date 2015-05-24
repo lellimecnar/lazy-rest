@@ -22,7 +22,11 @@ module.exports = function(customSchema) {
 			clientId: {
 				type: String,
 				required: true
-			}
+			},
+			scope: [{
+				type: String,
+				required: true
+			}]
 		}, customSchema || {}));
 	} else if (customSchema instanceof $mongoose.Schema) {
 		CodeSchema = customSchema;

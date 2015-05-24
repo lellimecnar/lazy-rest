@@ -7,7 +7,8 @@ module.exports = function($passport, opts) {
 		User = require('./models/user')(opts.UserSchema),
 		Client = require('./models/client')(opts.ClientSchema),
 		Token = require('./models/token')(opts.TokenSchema),
-		Code = require('./models/code')(opts.CodeSchema);
+		Code = require('./models/code')(opts.CodeSchema),
+		Scope = require('./models/scope')(opts.ScopeSchema);
 
 	$passport.use(opts.basic || new BasicStrategy(
 	  function(username, password, callback) {
@@ -60,7 +61,7 @@ module.exports = function($passport, opts) {
 	        if (!user) { return callback(null, false); }
 
 	        // Simple example with no scope
-	        callback(null, user, { scope: '*' });
+	        callback(null, user, { scope: token.scope });
 	      });
 	    });
 	  }

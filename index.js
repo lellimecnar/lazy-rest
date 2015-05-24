@@ -63,13 +63,19 @@ exports = module.exports = function(app, db, passport) {
 		});
 	}
 
-	this.addRoute = function(method, uri, auth, fn) {
+	this.addRoute = function(method, uri, fn, auth, scope) {
 		if (uri !== '/') {
 			uri = uri.replace(/\/$/, '');
 		}
 
+		scope = scope || [];
+		if (!_.isArray(scope)) {
+			scope = [scope];
+		}
+
 		$this.routes[uri] = $this.routes[uri] || {};
 		$this.routes[uri][method] = {
+			scope: scope,
 			auth: auth,
 			fn: fn
 		};
@@ -145,16 +151,18 @@ function routerFactory(opts) {
 			routeFn = require(path);
 			auth = routeFn.$auth;
 			delete routeFn.$auth;
+			scope = routeFn.$scope;
+			delete routeFn.$scope;
 
 			uri = m[1].replace(opts.paramPrefix, ':');
 			method = m[2].toLowerCase();
 
-			$this.addRoute(method, uri, auth, routeFn);
+			$this.addRoute(method, uri, routeFn, auth, scope);
 
 		}
 	});
 	
-	$this.addRoute('options', '/', false, function(req, res, next) {
+	$this.addRoute('options', '/', function(req, res, next) {
 		var endpoints = [],
 			path;
 
@@ -175,25 +183,40 @@ function routerFactory(opts) {
 	_.forEach($this.routes, function(routes, uri) {
 		var router = Router.route(uri);
 		_.forEach(routes, function(route, method) {
+			var args = [];
+
+			if (_.isFunction(route.fn)) {
+				route.fn = [route.fn];
+			}
+
 			if (
 				_.isFunction(router[method]) &&
-				(
-					_.isFunction(route.fn) ||
-					_.isArray(route.fn)
-				)
+				_.isArray(route.fn)
 			) {
-				var args = [route.fn];
+
+				args.push(route.fn);
 
 				if (route.auth) {
 					if (
 						authConfigured &&
 						$this.passport
 					) {
-						if (_.isFunction(route.auth)) {
-							args.unshift(route.auth);
-						} else {
-							args.unshift($this.authFn);
+						if (
+							!_.isFunction(route.auth)
+						) {
+							route.auth = $this.bearerAuthFn;
 						}
+						args.unshift(function(req, res, next) {
+							if (
+								route.scope.length > 0 &&
+								_.intersection(req.authInfo.scope, route.scope).length < 1
+							) {
+								res.status(401).send('Unauthorized');
+							} else {
+								next();
+							}
+						});
+						args.unshift(route.auth);
 					} else {
 						throw new Error('lazy-rest: auth must be configured for ' + method + ': ' + uri);
 					}
@@ -226,7 +249,14 @@ function authFactory(opts) {
 		UserSchema: {},
 		ClientSchema: {},
 		TokenSchema: {},
-		CodeSchema: {}
+		CodeSchema: {},
+		ScopeSchema: {},
+		scopes: [
+			{
+				key: 'profile',
+				description: 'Basic user information'
+			}
+		]
 	}, opts || {});
 
 	$this.passport = require('./auth/config')($this.passport, opts);
@@ -239,25 +269,25 @@ function authFactory(opts) {
 		}));
 	}
 
-	oauth2 = require('./auth/oauth2');
+	oauth2 = require('./auth/oauth2')(opts);
 
-	$this.addRoute('get', '/authorize', true, oauth2.authorization);
-	$this.addRoute('post', '/authorize', true, oauth2.decision);
-	$this.addRoute('get', '/callback', false, function(req, res, next) {
+	$this.addRoute('get', '/authorize', oauth2.authorization, $this.authFn);
+	$this.addRoute('post', '/authorize', oauth2.decision, $this.authFn);
+	$this.addRoute('get', '/callback', function(req, res, next) {
 		res.json(req.query);
 	});
-	$this.addRoute('post', '/token', $this.clientAuthFn, oauth2.token);
+	$this.addRoute('post', '/token', oauth2.token, $this.clientAuthFn);
 
-	$this.addRoute('post', '/users', false, function(req, res, next) {
+	$this.addRoute('post', '/users', function(req, res, next) {
 		req.app.db.model('User')
 			.create(req.body, modelCallback(res, next));
 	});
-	$this.addRoute('get', '/users', true, function(req, res, next) {
+	$this.addRoute('get', '/users', function(req, res, next) {
 		req.app.db.model('User')
 			.apiQuery(req.query, modelCallback(res, next));
-	});
+	}, $this.authFn);
 
-	$this.addRoute('post', '/clients', true, function(req, res, next) {
+	$this.addRoute('post', '/clients', function(req, res, next) {
 		req.body.userId = req.user._id;
 
 		req.body.id = randomStr(32);
@@ -265,11 +295,11 @@ function authFactory(opts) {
 
 		req.app.db.model('Client')
 			.create(req.body, modelCallback(res, next));
-	});
-	$this.addRoute('get', '/clients', true, function(req, res, next) {
+	}, $this.authFn);
+	$this.addRoute('get', '/clients', function(req, res, next) {
 		req.app.db.model('Client')
 			.find({ userId: req.user._id }, modelCallback(res, next));
-	});
+	}, $this.authFn);
 
 	return $this.passport.initialize();
 };
@@ -354,36 +384,36 @@ function dbFactory(opts) {
 
 		if (isEnabled('get')) {
 			if (isEnabled('query')) {
-				$this.addRoute('get', uri, isAuth('get'), function(req, res, next) {
+				$this.addRoute('get', uri, function(req, res, next) {
 					model.apiQuery(req.query, modelCallback(res, next));
-				});
+				}, isAuth('get'));
 			}
 
 			if (isEnabled('getOne')) {
-				$this.addRoute('get', paramUri, isAuth('get'), function(req, res, next) {
+				$this.addRoute('get', paramUri, function(req, res, next) {
 					model.findById(req.params[paramName], modelCallback(res, next));
-				});
+				}, isAuth('get'));
 			}
 		}
 
 		if (isEnabled('post')) {
-			$this.addRoute('post', uri, isAuth('post'), function() {
+			$this.addRoute('post', uri, function() {
 				model.create(req.body, modelCallback(res,next));
-			});
+			}, isAuth('post'));
 		}
 
 		if (isEnabled('put')) {
-			$this.addRoute('put', paramUri, isAuth('put'), function(req, res, next) {
+			$this.addRoute('put', paramUri, function(req, res, next) {
 				model.findByIdAndUpdate(req.params[paramName], {
 					$set: req.body
 				}, modelCallback(res, next));
-			});
+			}, isAuth('put'));
 		}
 
 		if (isEnabled('delete')) {
-			$this.addRoute('delete', paramUri, isAuth('delete'), function(req, res, next) {
+			$this.addRoute('delete', paramUri, function(req, res, next) {
 				model.findByIdAndRemove(req.params[paramName], modelCallback(res, next));
-			});
+			}, isAuth('delete'));
 		}
 	});
 

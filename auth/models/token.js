@@ -6,9 +6,22 @@ module.exports = function(customSchema) {
 
 	if (!customSchema || _.isPlainObject(customSchema)) {
 		TokenSchema = new $mongoose.Schema(_.extend({
-			value: { type: String, required: true },
-			userId: { type: String, required: true },
-			clientId: { type: String, required: true }
+			value: { 
+				type: String,
+				required: true
+			},
+			userId: { 
+				type: String,
+				required: true
+			},
+			clientId: { 
+				type: String,
+				required: true
+			},
+			scope: [{
+				type: String,
+				required: true
+			}]
 		}, customSchema || {}));
 	} else if (customSchema instanceof $mongoose.Schema) {
 		TokenSchema = customSchema;
