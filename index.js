@@ -251,13 +251,10 @@ function authFactory(opts) {
 		TokenSchema: {},
 		CodeSchema: {},
 		ScopeSchema: {},
-		scopes: [
-			{
-				key: 'profile',
-				description: 'Basic user information'
-			}
-		]
+		scopes: {}
 	}, opts || {});
+
+	opts.scopes.profile = opts.scopes.profile || 'Basic user information';
 
 	$this.passport = require('./auth/config')($this.passport, opts);
 
@@ -288,13 +285,19 @@ function authFactory(opts) {
 	}, $this.authFn);
 
 	$this.addRoute('post', '/clients', function(req, res, next) {
-		req.body.userId = req.user._id;
+		var client = req.body;
 
-		req.body.id = randomStr(32);
-		req.body.secret = randomStr(48);
+		client.userId = req.user._id;
+
+		client.id = randomStr(32);
+		client.secret = randomStr(48);
+
+		if (!_.isArray(client.domains)) {
+			client.domains = client.domains.split(/[|, ]+/);
+		}
 
 		req.app.db.model('Client')
-			.create(req.body, modelCallback(res, next));
+			.create(client, modelCallback(res, next));
 	}, $this.authFn);
 	$this.addRoute('get', '/clients', function(req, res, next) {
 		req.app.db.model('Client')

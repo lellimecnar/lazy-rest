@@ -1,14 +1,25 @@
 module.exports = function(opts) {
 	var $oauth2orize = require('oauth2orize'),
 		_ = require('lodash'),
+		$url = require('url'),
 		$mongoose = require('mongoose'),
 		db = $mongoose.connection,
 		User = db.model('User'),
 		Client = db.model('Client'),
 		Token = db.model('Token'),
 		Code = db.model('Code'),
+		Scope = db.model('Scope'),
 
 		server = $oauth2orize.createServer();
+
+	Scope.collection.drop();
+
+	_.forEach(opts.scopes, function(description, key) {
+		Scope.create({
+			key: key,
+			description: description
+		});
+	});
 
 	server.serializeClient(function(client, callback) {
 		return callback(null, client._id);
@@ -25,17 +36,28 @@ module.exports = function(opts) {
 		var scope = (data.scope || []).join('|').split(/[|, ]+/),
 			val = uid(16);
 
-		Code.create({
-			value: val,
-			clientId: client._id,
-			redirectUri: redirectUri,
-			userId: user._id,
-			scope: scope
-		}, function(err) {
+		Scope.find({
+			key: {$in: scope}
+		}, function(err, scopes) {
 			if (err) { return callback(err); }
 
-			callback(null, val);
+			var keys = scopes.map(function(s) {
+				return s.key;
+			});
+
+			Code.create({
+				value: val,
+				clientId: client._id,
+				redirectUri: redirectUri,
+				userId: user._id,
+				scope: keys
+			}, function(err) {
+				if (err) { return callback(err); }
+
+				callback(null, val);
+			});
 		});
+
 	}));
 
 	server.exchange($oauth2orize.exchange.code(function(client, code, redirectUri, callback) {
@@ -85,24 +107,25 @@ module.exports = function(opts) {
 					if (err) { return done(err); }
 					if (!client) { return done(null, false); }
 
-					// TODO: Make sure hostname of redirectUri matches client domains
-					
-					// if (client['app_domains'].indexOf(url.parse(redirectUri).hostname) < 0) {
-					// 	err = new Error('Redirect URI does not match registered redirect URI');
-					// 	err.name = 'Error';
-					// 	err.status = 400;
-					// 	err.code = 400;
-					// }
+					var redirectHostname = $url.parse(redirectUri).hostname,
+						domains = client.domains.map(function(domain) {
+						return $url.parse(domain).hostname;
+					});
 
-					return done(null, client, redirectUri);
+					if (!_.contains(domains, redirectHostname)) {
+						err = new Error('Hostname of redirect_uri (' + redirectHostname + ') does not match registered domains.');
+						err.name = 'Error';
+						err.status = 400;
+						err.code = 400;
+					}
+
+					return done(err, client, redirectUri);
 				});
 			}),
 			function(req, res){
 				var user = _.cloneDeep(req.user)._doc,
 					client = _.cloneDeep(req.oauth2.client)._doc,
-					scope = req.oauth2.req.scope.join(',').split(/[|, ]+/).join('|');
-
-				// TODO: Add scope definitions to output
+					scope = req.oauth2.req.scope.join(',').split(/[|, ]+/);
 
 				delete user._id;
 				delete user.__v;
@@ -113,17 +136,37 @@ module.exports = function(opts) {
 				delete client.secret;
 				delete client.userId;
 
-				res.json({
-					transactionId: req.oauth2.transactionID,
-					user: user,
-					client: client,
-					scope: scope
+				Scope.find({
+					key: {
+						$in: scope
+					}
+				}, function(err, scopes) {
+					if (!err) {
+						_.map(scopes, function(item) {
+							var s = _.clone(item)._doc;
+							delete s.__v;
+							delete s._id;
+							return s;
+						});
+
+						res.json({
+							transactionId: req.oauth2.transactionID,
+							user: user,
+							client: client,
+							scopes: scopes
+						});
+					} else {
+						res.status(500).send(err);
+					}
 				});
 			}
 		],
 		decision: [
 			server.decision(function(req, done) {
-				var scope = (req.body.scope || 'profile').split('|');
+				var scope = req.body.scope || ['profile'];
+				if (_.isString(scope)) {
+					scope = scope.split(/[|, ]+/);
+				}
 				return done(null, {scope: scope});
 			})
 		],

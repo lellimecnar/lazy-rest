@@ -1,6 +1,6 @@
 {
   "name": "lazy-rest",
-  "version": "0.4.6",
+  "version": "0.4.3",
   "description": "Create a simple REST API using just your folder structure to create endpoints",
   "main": "index.js",
   "scripts": {
@@ -32,6 +32,7 @@
     "lodash": "^3.9.1",
     "mongoose": "^4.0.3",
     "mongoose-api-query": "^0.1.1-pre",
+    "mongoose-validator": "^1.0.3",
     "oauth2orize": "^1.0.1",
     "passport": "^0.2.2",
     "passport-http": "^0.2.2",
@@ -39,9 +40,5 @@
     "random-ext": "^2.5.1",
     "replace-ext": "0.0.1"
   },
-  "readmeFilename": "README.md",
-  "gitHead": "634120bf729fc3177c82b7468e7c0cac2d84bdad",
-  "_id": "lazy-rest@0.4.3",
-  "_shasum": "fe36c066781597e69b26dce36354d7e08ea5f93f",
-  "_from": "lazy-rest@>=0.4.3 <0.5.0"
+  "readmeFilename": "README.md"
 }

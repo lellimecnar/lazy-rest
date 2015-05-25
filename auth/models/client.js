@@ -1,6 +1,7 @@
 module.exports = function(customSchema) {
 	var _ = require('lodash'),
 		$mongoose = require('mongoose'),
+		$valid = require('mongoose-validator'),
 		db = $mongoose.connection,
 		ClientSchema;
 
@@ -22,7 +23,15 @@ module.exports = function(customSchema) {
 			userId: { 
 				type: String,
 				required: true
-			}
+			},
+			domains: [{
+				type: String,
+				required: true,
+				validate: $valid({
+					validator: 'isURL',
+					message: 'Domains must be valid URLs'
+				})
+			}]
 		}, customSchema || {}));
 	} else if (customSchema instanceof $mongoose.Schema){
 		ClientSchema = customSchema;
