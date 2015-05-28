@@ -42,20 +42,12 @@ var $path = require('path'),
 exports = module.exports = function(app, db, passport) {
 	var $this = this;
 	
-	this.app = app || $express();
-	this.db = db || null;
-	this.passport = passport || require('passport');
+	$this.app = app || $express();
+	$this.db = db || null;
+	$this.passport = passport || require('passport');
 
-	this.routes = {};
-	this.authFn = $this.passport.authenticate(
-		[ 'basic', 'bearer'],
-		{ session: false });
-	this.clientAuthFn = $this.passport.authenticate(
-		'client-basic',
-		{ session : false });
-	this.bearerAuthFn = $this.passport.authenticate(
-		'bearer',
-		{ session: false });
+	$this.routes = {};
+	$this.authFn = function(req, res, next) { next(); };
 
 	this.getHandlers = function() {
 		return $this.app._router.stack.map(function(item) {
@@ -204,7 +196,11 @@ function routerFactory(opts) {
 						if (
 							!_.isFunction(route.auth)
 						) {
-							route.auth = $this.bearerAuthFn;
+							if (_.isFunction($this.bearerAuthFn)) {
+								route.auth = $this.bearerAuthFn;
+							} else {
+								route.auth = $this.authFn;
+							}
 						}
 						args.unshift(function(req, res, next) {
 							if (
@@ -246,6 +242,8 @@ function authFactory(opts) {
 
 	opts = _.extend({
 		sessionSecret: 'Super Secret Session Key',
+		oauth: true,
+		authFn: null,
 		UserSchema: {},
 		ClientSchema: {},
 		TokenSchema: {},
@@ -256,53 +254,83 @@ function authFactory(opts) {
 
 	opts.scopes.profile = opts.scopes.profile || 'Basic user information';
 
-	$this.passport = require('./auth/config')($this.passport, opts);
+	$this.authFn = opts.authFn || $this.authFn;
 
 	if (!_.contains(handlers, 'session')) {
-		$this.app.use(require('express-session')({
+		var $session = require('express-session'),
+			MongoStore = require('connect-mongo')($session);
+
+		$this.app.use($session({
 			secret: opts.sessionSecret,
 			saveUninitialized: true,
-			resave: true
+			resave: true,
+			rolling: true,
+			store: new MongoStore({
+				db: $this.db.connection.name,
+				mongooseConnection: $this.db.connection
+			}),
+			cookie: { httpOnly: false }
 		}));
 	}
 
-	oauth2 = require('./auth/oauth2')(opts);
+	if (!_.contains(handlers, 'cookieParser')) {
+		$this.app.use(require('cookie-parser')(opts.sessionSecret));
+	}
 
-	$this.addRoute('get', '/authorize', oauth2.authorization, $this.authFn);
-	$this.addRoute('post', '/authorize', oauth2.decision, $this.authFn);
-	$this.addRoute('get', '/callback', function(req, res, next) {
-		res.json(req.query);
-	});
-	$this.addRoute('post', '/token', oauth2.token, $this.clientAuthFn);
+	if (opts.oauth) {
+		$this.passport = require('./auth/config')($this.passport, opts);
 
-	$this.addRoute('post', '/users', function(req, res, next) {
-		req.app.db.model('User')
-			.create(req.body, modelCallback(res, next));
-	});
-	$this.addRoute('get', '/users', function(req, res, next) {
-		req.app.db.model('User')
-			.apiQuery(req.query, modelCallback(res, next));
-	}, $this.authFn);
+		$this.authFn = $this.passport.authenticate(
+			[ 'basic', 'bearer'],
+			{ session: false });
+		$this.clientAuthFn = $this.passport.authenticate(
+			'client-basic',
+			{ session : false });
+		$this.bearerAuthFn = $this.passport.authenticate(
+			'bearer',
+			{ session: false });
 
-	$this.addRoute('post', '/clients', function(req, res, next) {
-		var client = req.body;
+		oauth2 = require('./auth/oauth2')(opts);
 
-		client.userId = req.user._id;
+		$this.addRoute('get', '/authorize', oauth2.authorization, $this.authFn);
+		$this.addRoute('post', '/authorize', oauth2.decision, $this.authFn);
+		$this.addRoute('get', '/callback', function(req, res, next) {
+			res.json(req.query);
+		});
+		$this.addRoute('post', '/token', oauth2.token, $this.clientAuthFn);
 
-		client.id = randomStr(32);
-		client.secret = randomStr(48);
+		$this.addRoute('post', '/users', function(req, res, next) {
+			req.app.db.model('User')
+				.create(req.body, modelCallback(res, next));
+		});
+		$this.addRoute('get', '/users', function(req, res, next) {
+			req.app.db.model('User')
+				.apiQuery(req.query, modelCallback(res, next));
+		}, $this.authFn);
 
-		if (!_.isArray(client.domains)) {
-			client.domains = client.domains.split(/[|, ]+/);
-		}
 
-		req.app.db.model('Client')
-			.create(client, modelCallback(res, next));
-	}, $this.authFn);
-	$this.addRoute('get', '/clients', function(req, res, next) {
-		req.app.db.model('Client')
-			.find({ userId: req.user._id }, modelCallback(res, next));
-	}, $this.authFn);
+		$this.addRoute('post', '/clients', function(req, res, next) {
+			var client = req.body;
+
+			client.userId = req.user._id;
+
+			client.id = randomStr(32);
+			client.secret = randomStr(48);
+
+			if (!_.isArray(client.domains)) {
+				client.domains = client.domains.split(/[|, ]+/);
+			}
+
+			req.app.db.model('Client')
+				.create(client, modelCallback(res, next));
+		}, $this.authFn);
+		$this.addRoute('get', '/clients', function(req, res, next) {
+			req.app.db.model('Client')
+				.find({ userId: req.user._id }, modelCallback(res, next));
+		}, $this.authFn);
+	} else {
+		require('./auth/models/user')(opts.UserSchema);
+	}
 
 	return $this.passport.initialize();
 };
