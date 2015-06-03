@@ -41,7 +41,7 @@ var $path = require('path'),
 
 exports = module.exports = function(app, db, passport) {
 	var $this = this;
-	
+
 	$this.app = app || $express();
 	$this.db = db || null;
 	$this.passport = passport || require('passport');
@@ -153,7 +153,7 @@ function routerFactory(opts) {
 
 		}
 	});
-	
+
 	$this.addRoute('options', '/', function(req, res, next) {
 		var endpoints = [],
 			path;
@@ -299,16 +299,6 @@ function authFactory(opts) {
 		});
 		$this.addRoute('post', '/token', oauth2.token, $this.clientAuthFn);
 
-		$this.addRoute('post', '/users', function(req, res, next) {
-			req.app.db.model('User')
-				.create(req.body, modelCallback(res, next));
-		});
-		$this.addRoute('get', '/users', function(req, res, next) {
-			req.app.db.model('User')
-				.apiQuery(req.query, modelCallback(res, next));
-		}, $this.authFn);
-
-
 		$this.addRoute('post', '/clients', function(req, res, next) {
 			var client = req.body;
 
@@ -331,6 +321,30 @@ function authFactory(opts) {
 	} else {
 		require('./auth/models/user')(opts.UserSchema);
 	}
+
+	$this.addRoute('post', '/user', function(req, res, next) {
+		req.app.db.model('User')
+			.create(req.body, modelCallback(res, next));
+	});
+
+	$this.addRoute('get', '/profile', function(req, res, next) {
+		if (
+			req.session &&
+			req.session.passport &&
+			req.session.passport.user
+		) {
+			req.app.db.model('User')
+				.findOne({
+					username: req.session.passport.user
+				}, {
+					_id: false,
+					__v: false,
+					password: false
+				}, modelCallback(res, next));
+		} else {
+			res.json({error: 'Unauthorized'})
+		}
+	}, null, ['profile']);
 
 	return $this.passport.initialize();
 };
